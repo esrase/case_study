@@ -3,5 +3,6 @@ pydantic
 psycopg2-binary
 apscheduler
 tenacity
+sqlalchemy
 
 

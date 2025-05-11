@@ -1,10 +1,14 @@
 import requests
-from typing import List, Optional
-from pydantic import BaseModel, HttpUrl, Field
-import psycopg2
-from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel, Field
 from apscheduler.schedulers.blocking import BlockingScheduler
 from tenacity import retry, stop_after_attempt, wait_fixed
+
+from db.session import SessionLocal
+from db.models import Campground as CampgroundORM
+from logging_config import setup_logger
+
+logger = setup_logger()
 
 
 class CampgroundAttributes(BaseModel):
@@ -25,45 +29,39 @@ class CampgroundData(BaseModel):
 
 
 def insert_into_db(camp: CampgroundData):
+    session = SessionLocal()
     try:
-        conn = psycopg2.connect(
-            host="postgres",
-            dbname="case_study",
-            user="user",
-            password="password",
-            port=5432
-        )
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO campgrounds (id, type, name, latitude, longitude, region_name, bookable, photos_count, reviews_count, rating)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name,
-                latitude = EXCLUDED.latitude,
-                longitude = EXCLUDED.longitude,
-                region_name = EXCLUDED.region_name,
-                bookable = EXCLUDED.bookable,
-                photos_count = EXCLUDED.photos_count,
-                reviews_count = EXCLUDED.reviews_count,
-                rating = EXCLUDED.rating
-        """, (
-            camp.id,
-            camp.type,
-            camp.attributes.name,
-            camp.attributes.latitude,
-            camp.attributes.longitude,
-            camp.attributes.region_name,
-            camp.attributes.bookable,
-            camp.attributes.photos_count,
-            camp.attributes.reviews_count,
-            camp.attributes.rating
-        ))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        print("✓", camp.attributes.name)
+        existing = session.query(CampgroundORM).filter_by(id=camp.id).first()
+        if existing:
+            existing.name = camp.attributes.name
+            existing.latitude = camp.attributes.latitude
+            existing.longitude = camp.attributes.longitude
+            existing.region_name = camp.attributes.region_name
+            existing.bookable = camp.attributes.bookable
+            existing.photos_count = camp.attributes.photos_count
+            existing.reviews_count = camp.attributes.reviews_count
+            existing.rating = camp.attributes.rating
+        else:
+            new_camp = CampgroundORM(
+                id=camp.id,
+                type=camp.type,
+                name=camp.attributes.name,
+                latitude=camp.attributes.latitude,
+                longitude=camp.attributes.longitude,
+                region_name=camp.attributes.region_name,
+                bookable=camp.attributes.bookable,
+                photos_count=camp.attributes.photos_count,
+                reviews_count=camp.attributes.reviews_count,
+                rating=camp.attributes.rating
+            )
+            session.add(new_camp)
+        session.commit()
+        logger.info(f"✓ {camp.attributes.name}")
     except Exception as e:
-        print(f"[ERROR] Veritabanı hatası: {e}")
+        logger.error(f"DB Hatası: {e}")
+        session.rollback()
+    finally:
+        session.close()
 
 
 def generate_us_bbox_grid(step=2.0):
@@ -86,19 +84,20 @@ def generate_us_bbox_grid(step=2.0):
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def fetch_with_retry(url, headers, params):
-    print(f"[INFO] API isteği: {params['filter[search][bbox]']}")
+    logger.info(f"API isteği: {params['filter[search][bbox]']}")
     response = requests.get(url, headers=headers, params=params, timeout=10)
     response.raise_for_status()
     return response
 
 
 def fetch_all_us_campgrounds():
+    logger.info("🚀 Logger test mesajı: Scraper başlatıldı")
     bboxes = generate_us_bbox_grid(step=2.0)
-    print(f"[INFO] Toplam {len(bboxes)} bbox işlenecek.")
+    logger.info(f"Toplam {len(bboxes)} bbox işlenecek.")
 
     for i, (min_lng, min_lat, max_lng, max_lat) in enumerate(bboxes, start=1):
         bbox_str = f"{min_lng},{min_lat},{max_lng},{max_lat}"
-        print(f"[{i}/{len(bboxes)}] → {bbox_str}")
+        logger.info(f"[{i}/{len(bboxes)}] → {bbox_str}")
         url = "https://thedyrt.com/api/v6/locations/search-results"
         params = {
             "filter[search][drive_time]": "any",
@@ -122,21 +121,29 @@ def fetch_all_us_campgrounds():
                     camp = CampgroundData(**item)
                     insert_into_db(camp)
                 except Exception as ve:
-                    print(f"[SKIP] Doğrulama hatası: {ve}")
+                    logger.warning(f"Doğrulama hatası: {ve}")
         except Exception as e:
-            print(f"[RETRY_FAILED] API hatası ({bbox_str}): {e}")
+            logger.error(f"API hatası ({bbox_str}): {e}")
 
 
 def scheduled_job():
-    print(f"[SCHEDULED] Veri çekme işlemi başlatıldı: {datetime.utcnow()}")
+    from datetime import datetime
+    logger.info(f"[SCHEDULED] Veri çekme işlemi başlatıldı: {datetime.utcnow()}")
     fetch_all_us_campgrounds()
 
 
 def run():
     scheduler = BlockingScheduler()
-    scheduler.add_job(scheduled_job, 'cron', hour=2, minute=0)  # Her gün 02:00 UTC
-    print("[INFO] Zamanlayıcı başlatıldı. Her gün 02:00'de çalışacak.")
+    scheduler.add_job(scheduled_job, 'cron', hour=2, minute=0)
+    logger.info("Zamanlayıcı başlatıldı. Her gün 02:00'de çalışacak.")
     scheduler.start()
+
+
+
+
+
+
+
 
 
 
