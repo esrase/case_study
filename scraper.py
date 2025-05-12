@@ -31,6 +31,9 @@ class CampgroundData(BaseModel):
 def insert_into_db(camp: CampgroundData):
     session = SessionLocal()
     try:
+        rating = camp.attributes.rating if camp.attributes.rating is not None else 0.0
+        logger.info(f"[TEST] {camp.attributes.name} - Rating: {rating} | Reviews: {camp.attributes.reviews_count}")
+
         existing = session.query(CampgroundORM).filter_by(id=camp.id).first()
         if existing:
             existing.name = camp.attributes.name
@@ -40,7 +43,7 @@ def insert_into_db(camp: CampgroundData):
             existing.bookable = camp.attributes.bookable
             existing.photos_count = camp.attributes.photos_count
             existing.reviews_count = camp.attributes.reviews_count
-            existing.rating = camp.attributes.rating
+            existing.rating = rating
         else:
             new_camp = CampgroundORM(
                 id=camp.id,
@@ -52,7 +55,7 @@ def insert_into_db(camp: CampgroundData):
                 bookable=camp.attributes.bookable,
                 photos_count=camp.attributes.photos_count,
                 reviews_count=camp.attributes.reviews_count,
-                rating=camp.attributes.rating
+                rating=rating
             )
             session.add(new_camp)
         session.commit()
@@ -67,7 +70,6 @@ def insert_into_db(camp: CampgroundData):
 def generate_us_bbox_grid(step=2.0):
     lat_min, lat_max = 24.396308, 49.384358
     lng_min, lng_max = -125.0, -66.93457
-
     grid = []
     lat = lat_min
     while lat < lat_max:
@@ -91,7 +93,7 @@ def fetch_with_retry(url, headers, params):
 
 
 def fetch_all_us_campgrounds():
-    logger.info("🚀 Logger test mesajı: Scraper başlatıldı")
+    logger.info("🚀 Scraper başlatıldı")
     bboxes = generate_us_bbox_grid(step=2.0)
     logger.info(f"Toplam {len(bboxes)} bbox işlenecek.")
 
@@ -118,6 +120,17 @@ def fetch_all_us_campgrounds():
             data = response.json().get("data", [])
             for item in data:
                 try:
+                    
+                    rating_raw = item["attributes"].get("rating")
+                    logger.info(f"[DEBUG] Raw rating: {rating_raw} for {item['attributes'].get('name')}")
+                    if rating_raw is None:
+                        item["attributes"]["rating"] = 0.0
+                    else:
+                        try:
+                            item["attributes"]["rating"] = float(rating_raw)
+                        except ValueError:
+                            item["attributes"]["rating"] = 0.0
+
                     camp = CampgroundData(**item)
                     insert_into_db(camp)
                 except Exception as ve:
@@ -137,6 +150,30 @@ def run():
     scheduler.add_job(scheduled_job, 'cron', hour=2, minute=0)
     logger.info("Zamanlayıcı başlatıldı. Her gün 02:00'de çalışacak.")
     scheduler.start()
+
+
+if __name__ == "__main__":
+    logger.info("[TEST] Lokal test başlatıldı.")
+    test_item = {
+        "id": "Z2lkOi8vY29yZS1hcGkvQ2FtcGdyb3VuZC9URVNUX0lE",
+        "type": "location-search-results",
+        "attributes": {
+            "name": "Test Campground",
+            "latitude": 36.123,
+            "longitude": -121.123,
+            "region-name": "California",
+            "bookable": True,
+            "photos-count": 3,
+            "reviews-count": 1,
+            "rating": None  
+        }
+    }
+    test_camp = CampgroundData(**test_item)
+    insert_into_db(test_camp)
+
+
+
+
 
 
 

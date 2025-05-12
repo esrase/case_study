@@ -16,6 +16,10 @@ class Campground(Base):
     photos_count = Column(Integer)
     reviews_count = Column(Integer)
     rating = Column(Float)
+    
+
+
+
 
 
 

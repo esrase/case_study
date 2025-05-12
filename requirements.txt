@@ -1,8 +1,15 @@
-requests
-pydantic
-psycopg2-binary
-apscheduler
-tenacity
+fastapi
+uvicorn[standard]
 sqlalchemy
+psycopg2-binary
+pydantic
+requests
+tenacity
+apscheduler
+jinja2
+aiohttp
+
+
+
 
 

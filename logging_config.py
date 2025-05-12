@@ -10,10 +10,10 @@ def setup_logger():
         # Log formatı
         formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
 
-        # Log dosyası yolu (host'taki dizinde olacak)
+        # Log dosyası yolu
         log_file = os.path.join(os.getcwd(), "scraper.log")
 
-        # Dosya handler (logları dosyaya yazar)
+        # Dosya handler 
         file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
         file_handler.setFormatter(formatter)
 
